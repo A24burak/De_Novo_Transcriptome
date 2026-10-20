@@ -1,0 +1,39 @@
+## Fastqc incelemeleri sırasında raw okumalarda tile problemi olduğu saptandı bu sbeple ilk temizlik aşamasında BBtools filterbytile.sh scripti kullanılarak tile temziliği gerçekleştirildi
+filterbytile.sh in=Raw_reads_1.fq.gz in2=Raw_reads_2.fq.gz out=Raw_reads_1_removedTILE.fq.gz out2=Raw_reads_2_removedTILE.fq.gz qdeviations=0.5 qfraction=0.01 qabsolute=1.0 mdf=0.8 lowqualityonly=f
+
+## Kalitesiz tile'lar çıkartıldıktan sonra Fastp ile trimming aşaması gerçekleştirildi
+fastp -i Raw_reads_1_removedTILE.fq.gz -o Raw_reads_1_trimmed.fq.gz -I Raw_reads_2_removedTILE.fq.gz -O Raw_reads_2_trimmed.fq.gz --detect_adapter_for_pe --trim_poly_g --html report.html --json report.json
+
+## De Novo Transcriptome Assembly için TRINITY çalıştırıldı
+Trinity --seqType fq --samples_file samples.txt --normalize_by_read_set --output trinity_out_dir
+
+## Assembly sonucunda benzer dizileri kümeleyerek dizi fazlalığını azaltmak için cdhit aracı kullanıldı
+cd-hit-est -i trinity_out_dir.Trinity.fasta -o trinity_clustered.fasta -c 0.90
+
+## Oluşturulan Assemblynin kalitesini incelemek için trinityde N50 değeri inclendi.
+TrinityStats.pl trinity_clustered.fasta
+
+## Ekspresyon seviyelerine göre filtreleme gerçekleştirmek için TPM değerleri incelendi ve TPM < 4 olanların filtrelenmesine karar verildi.
+align_and_estimate_abundance.pl --transcripts trinity_clustered.fasta  --est_method salmon --gene_trans_map trinity_clustered.fasta.gene_trans_map  --prep_reference
+
+align_and_estimate_abundance.pl  --transcripts trinity_clustered.fasta --seqType fq  --samples_file  samples.txt --est_method salmon --gene_trans_map trinity_clustered.fasta.gene_trans_map  --output_dir salmon 
+
+abundance_estimates_to_matrix.pl --est_method salmon --gene_trans_map trinity_clustered.fasta.gene_trans_map --quant_files salmon.quant_files.txt --name_sample_by_basedir 
+
+count_matrix_features_given_MIN_TPM_threshold.pl salmon.isoform.TPM.not_cross_norm | tee isoforms_matrix.TPM.not_cross_norm.counts_by_min_TPM 
+
+filter_low_expr_transcripts.pl --matrix salmon.isoform.TPM.not_cross_norm --transcripts trinity_clustered.fasta --gene_to_trans_map trinity_clustered.fasta.gene_trans_map --min_expr_any 4
+
+get_Trinity_gene_to_trans_map.pl filtered.Trinity.fasta > filtered.Trinity.fasta.gene-trans-map.txt
+
+## Transcriptomun son halini biyolojik olarak değerlendirilmesi için BUSCO aracı hemiptera_odb12 veritabanında çalıştırıldı
+busco -i filtered.Trinity.fasta -m transcriptome -l hemiptera_odb12 -o busco_sonuc_raw
+
+## Tamamlanan Transcriptomun anotasyonu TransDecoder kullanılarak gerçekleştirildi
+TransDecoder.LongOrfs -t filtered.Trinity.fasta
+
+diamond blastp -q longest_orfs.pep -d uniprot_sprot -o diamond_blastp.outfmt6 --outfmt 6 -e 1e-5
+
+hmmscan --domtblout pfam.domtblout Pfam-A.hmm longest_orfs.pep
+
+TransDecoder.Predict -t filtered.Trinity.fasta --retain_blastp_hits diamond_blastp.outfmt6 --retain_pfam_hits pfam.domtblout
