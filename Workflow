@@ -1,19 +1,19 @@
-## Fastqc incelemeleri sırasında raw okumalarda tile problemi olduğu saptandı bu sbeple ilk temizlik aşamasında BBtools filterbytile.sh scripti kullanılarak tile temziliği gerçekleştirildi
+## During FastQC assessment, tile-related issues were identified in the raw sequencing reads. Therefore, tile-based filtering was performed during the initial quality-control step using the filterbytile.sh script from BBTools.
 filterbytile.sh in=Raw_reads_1.fq.gz in2=Raw_reads_2.fq.gz out=Raw_reads_1_removedTILE.fq.gz out2=Raw_reads_2_removedTILE.fq.gz qdeviations=0.5 qfraction=0.01 qabsolute=1.0 mdf=0.8 lowqualityonly=f
 
-## Kalitesiz tile'lar çıkartıldıktan sonra Fastp ile trimming aşaması gerçekleştirildi
+## After removing low-quality tiles, trimming was performed using fastp.
 fastp -i Raw_reads_1_removedTILE.fq.gz -o Raw_reads_1_trimmed.fq.gz -I Raw_reads_2_removedTILE.fq.gz -O Raw_reads_2_trimmed.fq.gz --detect_adapter_for_pe --trim_poly_g --html report.html --json report.json
 
-## De Novo Transcriptome Assembly için TRINITY çalıştırıldı
+## Trinity was used for de novo transcriptome assembly.
 Trinity --seqType fq --samples_file samples.txt --normalize_by_read_set --output trinity_out_dir
 
-## Assembly sonucunda benzer dizileri kümeleyerek dizi fazlalığını azaltmak için cdhit aracı kullanıldı
+## CD-HIT was used to cluster similar sequences and reduce sequence redundancy in the assembly.
 cd-hit-est -i trinity_out_dir.Trinity.fasta -o trinity_clustered.fasta -c 0.90
 
-## Oluşturulan Assemblynin kalitesini incelemek için trinityde N50 değeri inclendi.
+## N50 statistic reported by Trinity was examined to assess the quality of the generated assembly.
 TrinityStats.pl trinity_clustered.fasta
 
-## Ekspresyon seviyelerine göre filtreleme gerçekleştirmek için TPM değerleri incelendi ve TPM < 4 olanların filtrelenmesine karar verildi.
+## TPM values were examined to filter transcripts based on expression levels, and transcripts with TPM < 4 were selected for removal.
 align_and_estimate_abundance.pl --transcripts trinity_clustered.fasta  --est_method salmon --gene_trans_map trinity_clustered.fasta.gene_trans_map  --prep_reference
 
 align_and_estimate_abundance.pl  --transcripts trinity_clustered.fasta --seqType fq  --samples_file  samples.txt --est_method salmon --gene_trans_map trinity_clustered.fasta.gene_trans_map  --output_dir salmon 
@@ -26,10 +26,10 @@ filter_low_expr_transcripts.pl --matrix salmon.isoform.TPM.not_cross_norm --tran
 
 get_Trinity_gene_to_trans_map.pl filtered.Trinity.fasta > filtered.Trinity.fasta.gene-trans-map.txt
 
-## Transcriptomun son halini biyolojik olarak değerlendirilmesi için BUSCO aracı hemiptera_odb12 veritabanında çalıştırıldı
-busco -i filtered.Trinity.fasta -m transcriptome -l hemiptera_odb12 -o busco_sonuc_raw
+## To assess the biological completeness of the final transcriptome assembly, BUSCO was run in hemiptera_odb12 database.
+busco -i filtered.Trinity.fasta -m transcriptome -l hemiptera_odb12 -o busco_result
 
-## Tamamlanan Transcriptomun anotasyonu TransDecoder kullanılarak gerçekleştirildi
+## The completed transcriptome was annotated using TransDecoder.
 TransDecoder.LongOrfs -t filtered.Trinity.fasta
 
 diamond blastp -q longest_orfs.pep -d uniprot_sprot -o diamond_blastp.outfmt6 --outfmt 6 -e 1e-5
